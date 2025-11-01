@@ -41,8 +41,10 @@
 
 	let locationMarker, locationCircle;
 	let lastUpdateTime = 0;
+	let updateCount = 0;
 
 	function onLocationFound(position) {
+		updateCount++;
 		const latlng = {
 			lat: position.coords.latitude,
 			lng: position.coords.longitude
@@ -56,7 +58,7 @@
 		}
 		lastUpdateTime = currentTime;
 
-		const popupText = `Last update: ${timeSinceLastUpdate} seconds ago`;
+		const popupText = `Update #${updateCount}. Interval: ${timeSinceLastUpdate} seconds`;
 
 		if (locationMarker) {
 			locationMarker.setLatLng(latlng);
@@ -117,6 +119,7 @@
 
 	// Request wake lock on page load
 	requestWakeLock();
+
 </script>
 
 
