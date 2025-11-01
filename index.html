@@ -40,6 +40,7 @@
 	}).addTo(map);
 
 	let locationMarker, locationCircle;
+	let lastUpdateTime = 0;
 
 	function onLocationFound(position) {
 		const latlng = {
@@ -48,13 +49,22 @@
 		};
 		const radius = position.coords.accuracy / 2;
 
+		const currentTime = Date.now();
+		let timeSinceLastUpdate = 0;
+		if (lastUpdateTime !== 0) {
+			timeSinceLastUpdate = Math.round((currentTime - lastUpdateTime) / 1000);
+		}
+		lastUpdateTime = currentTime;
+
+		const popupText = `Last update: ${timeSinceLastUpdate} seconds ago`;
+
 		if (locationMarker) {
 			locationMarker.setLatLng(latlng);
 			locationCircle.setLatLng(latlng).setRadius(radius);
-			locationMarker.bindPopup(`You are within ${radius} meters from this point`).openPopup();
+			locationMarker.bindPopup(popupText).openPopup();
 		} else {
 			locationMarker = L.marker(latlng).addTo(map)
-				.bindPopup(`You are within ${radius} meters from this point`).openPopup();
+				.bindPopup(popupText).openPopup();
 			locationCircle = L.circle(latlng, radius).addTo(map);
 		}
 
