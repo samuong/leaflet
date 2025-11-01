@@ -76,6 +76,37 @@
 	} else {
 		alert("Geolocation is not supported by your browser.");
 	}
+
+	let wakeLock = null;
+
+	const requestWakeLock = async () => {
+	  try {
+	    wakeLock = await navigator.wakeLock.request('screen');
+	    wakeLock.addEventListener('release', () => {
+	      console.log('Screen Wake Lock was released');
+	    });
+	    console.log('Screen Wake Lock is active');
+	  } catch (err) {
+	    console.error(`${err.name}, ${err.message}`);
+	  }
+	};
+
+	const releaseWakeLock = async () => {
+	  if (wakeLock) {
+	    await wakeLock.release();
+	    wakeLock = null;
+	  }
+	};
+
+	document.addEventListener('visibilitychange', () => {
+	  if (document.visibilityState === 'visible') {
+	    requestWakeLock();
+	  } else {
+	    releaseWakeLock();	  }
+	});
+
+	// Request wake lock on page load
+	requestWakeLock();
 </script>
 
 
