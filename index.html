@@ -1,128 +1,177 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<base target="_top">
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	
-	<title>Mobile tutorial - Leaflet</title>
-	
-	<link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runabout</title>
+    <style>
+        body { margin: 0; font-family: sans-serif; }
+        .screen { display: none; padding: 20px; }
+        .screen.active { display: block; }
+        #debug-log {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px; /* Increased height for better visibility */
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            overflow-y: scroll;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 9999;
+            display: none; /* Hidden by default */
+        }
+        #debug-log.active { display: block; }
+        #debug-log p { margin: 0 0 5px 0; line-height: 1.2; }
+        button { margin-top: 10px; padding: 10px 15px; font-size: 16px; cursor: pointer; }
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
-	<style>
-		html, body {
-			height: 100%;
-			margin: 0;
-		}
-		.leaflet-container {
-			height: 400px;
-			width: 600px;
-			max-width: 100%;
-			max-height: 100%;
-		}
-	</style>
-
-	<style>body { padding: 0; margin: 0; } #map { height: 100%; width: 100vw; }</style>
+        /* Styling for the less prominent debug button */
+        #toggleDebugButton {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            font-size: 12px;
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            z-index: 10000; /* Ensure it's above other content */
+            margin-top: 0; /* Override default button margin */
+        }
+    </style>
 </head>
 <body>
+    <div id="overview-screen" class="screen active">
+        <h1>Welcome to Runabout!</h1>
+        <button id="startButton">Start</button>
+    </div>
 
-<div id='map'></div>
+    <div id="navigation-screen" class="screen">
+        <p>started</p>
+    </div>
 
-<script>
-	const map = L.map('map').fitWorld();
+    <div id="debug-log"></div>
+    <button id="toggleDebugButton"></button>
 
-	const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-		maxZoom: 19,
-		attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-	}).addTo(map);
+    <script>
+        const overviewScreen = document.getElementById('overview-screen');
+        const navigationScreen = document.getElementById('navigation-screen');
+        const startButton = document.getElementById('startButton');
+        const toggleDebugButton = document.getElementById('toggleDebugButton');
+        const debugLog = document.getElementById('debug-log');
 
-	let locationMarker, locationCircle;
-	let lastUpdateTime = 0;
-	let updateCount = 0;
+        let wakeLock = null;
+        let isDebugModeActive = localStorage.getItem('isDebugModeActive') === 'true';
 
-	function onLocationFound(position) {
-		updateCount++;
-		const latlng = {
-			lat: position.coords.latitude,
-			lng: position.coords.longitude
-		};
-		const radius = position.coords.accuracy / 2;
+        function logToScreen(message) {
+            const p = document.createElement('p');
+            p.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            debugLog.appendChild(p);
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
 
-		const currentTime = Date.now();
-		let timeSinceLastUpdate = 0;
-		if (lastUpdateTime !== 0) {
-			timeSinceLastUpdate = Math.round((currentTime - lastUpdateTime) / 1000);
-		}
-		lastUpdateTime = currentTime;
+        function appLog(message) {
+            if (isDebugModeActive) {
+                logToScreen(message);
+            }
+            // Still log to console for desktop debugging convenience
+            console.log(message);
+        }
 
-		const popupText = `Update #${updateCount}. Interval: ${timeSinceLastUpdate} seconds`;
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        appLog('Wake Lock was released');
+                    });
+                    appLog('Wake Lock was acquired');
+                } catch (err) {
+                    if (err.name === 'NotAllowedError') {
+                        appLog(`Wake Lock request denied: ${err.message}. User gesture required or permission denied.`);
+                    } else {
+                        appLog(`Wake Lock error: ${err.name}, ${err.message}`);
+                    }
+                }
+            } else {
+                appLog('Wake Lock API not supported in this browser.');
+            }
+        }
 
-		if (locationMarker) {
-			locationMarker.setLatLng(latlng);
-			locationCircle.setLatLng(latlng).setRadius(radius);
-			locationMarker.bindPopup(popupText).openPopup();
-		} else {
-			locationMarker = L.marker(latlng).addTo(map)
-				.bindPopup(popupText).openPopup();
-			locationCircle = L.circle(latlng, radius).addTo(map);
-		}
+        function releaseWakeLock() {
+            if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+                appLog('Wake Lock released');
+            }
+        }
 
-		map.setView(latlng, 16);
-	}
+        function updateDebugDisplay() {
+            if (isDebugModeActive) {
+                debugLog.classList.add('active');
+                toggleDebugButton.textContent = 'Disable Debugging';
+            } else {
+                debugLog.classList.remove('active');
+                toggleDebugButton.textContent = 'Enable Debugging';
+            }
+        }
 
-	function onLocationError(error) {
-		alert(error.message);
-	}
+        function showScreen(screenName) {
+            overviewScreen.classList.remove('active');
+            navigationScreen.classList.remove('active');
 
-	const geoOptions = {
-		enableHighAccuracy: true,
-		maximumAge: 0,
-		timeout: 5000
-	};
+            if (screenName === 'overview') {
+                overviewScreen.classList.add('active');
+            } else if (screenName === 'navigation') {
+                navigationScreen.classList.add('active');
+            }
+        }
 
-	if ("geolocation" in navigator) {
-		navigator.geolocation.watchPosition(onLocationFound, onLocationError, geoOptions);
-	} else {
-		alert("Geolocation is not supported by your browser.");
-	}
+        startButton.addEventListener('click', () => {
+            history.pushState({ screen: 'navigation' }, '', '#navigation');
+            showScreen('navigation');
+            requestWakeLock(); // Directly tied to user gesture
+        });
 
-	let wakeLock = null;
+        window.addEventListener('popstate', (event) => {
+            const targetScreen = event.state && event.state.screen ? event.state.screen : 'overview';
+            showScreen(targetScreen);
+            if (targetScreen === 'navigation') {
+                requestWakeLock(); // Directly tied to user gesture (back button)
+            } else {
+                releaseWakeLock(); // Release if navigating away from navigation screen
+            }
+        });
 
-	const requestWakeLock = async () => {
-	  try {
-	    wakeLock = await navigator.wakeLock.request('screen');
-	    wakeLock.addEventListener('release', () => {
-	      console.log('Screen Wake Lock was released');
-	    });
-	    console.log('Screen Wake Lock is active');
-	  } catch (err) {
-	    console.error(`${err.name}, ${err.message}`);
-	  }
-	};
+        toggleDebugButton.addEventListener('click', () => {
+            isDebugModeActive = !isDebugModeActive;
+            localStorage.setItem('isDebugModeActive', isDebugModeActive);
+            updateDebugDisplay();
+            appLog(`Debug mode ${isDebugModeActive ? 'enabled' : 'disabled'}`);
+        });
 
-	const releaseWakeLock = async () => {
-	  if (wakeLock) {
-	    await wakeLock.release();
-	    wakeLock = null;
-	  }
-	};
+        document.addEventListener('visibilitychange', () => {
+            if (wakeLock !== null && document.visibilityState === 'visible' && navigationScreen.classList.contains('active')) {
+                appLog('Visibility changed to visible while on navigation screen, re-requesting Wake Lock.');
+                requestWakeLock();
+            } else if (document.visibilityState === 'hidden' && wakeLock) {
+                appLog('Page hidden, Wake Lock likely released by browser.');
+            }
+        });
 
-	document.addEventListener('visibilitychange', () => {
-	  if (document.visibilityState === 'visible') {
-	    requestWakeLock();
-	  } else {
-	    releaseWakeLock();	  }
-	});
-
-	// Request wake lock on page load
-	requestWakeLock();
-
-</script>
-
-
-
+        // Initial screen setup based on URL hash and debug display
+        if (window.location.hash === '#navigation') {
+            showScreen('navigation');
+            requestWakeLock(); // Request on initial load if directly on #navigation
+        } else {
+            showScreen('overview');
+            releaseWakeLock(); // Ensure it's released if starting on overview
+        }
+        updateDebugDisplay(); // Set initial visibility of debug log and button text
+    </script>
 </body>
 </html>
