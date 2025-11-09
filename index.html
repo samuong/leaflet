@@ -4,10 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Runabout</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
     <style>
-        body { margin: 0; font-family: sans-serif; }
-        .screen { display: none; padding: 20px; }
+        body {
+            padding: 0;
+            margin: 0;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        html, body, #map {
+            height: 100%;
+            width: 100vw;
+        }
+        .screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+        }
         .screen.active { display: block; }
+        #overview-screen { padding: 20px; }
         #debug-log {
             position: fixed;
             bottom: 0;
@@ -51,12 +72,15 @@
     </div>
 
     <div id="navigation-screen" class="screen">
-        <p>started</p>
+        <div id="map"></div>
     </div>
 
     <div id="debug-log"></div>
     <button id="toggleDebugButton"></button>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
     <script>
         const overviewScreen = document.getElementById('overview-screen');
         const navigationScreen = document.getElementById('navigation-screen');
@@ -66,6 +90,7 @@
 
         let wakeLock = null;
         let isDebugModeActive = localStorage.getItem('isDebugModeActive') === 'true';
+        let mapInstance = null; // Global variable to hold the Leaflet map instance
 
         function logToScreen(message) {
             const p = document.createElement('p');
@@ -106,7 +131,6 @@
             if (wakeLock) {
                 wakeLock.release();
                 wakeLock = null;
-                appLog('Wake Lock released');
             }
         }
 
@@ -120,14 +144,52 @@
             }
         }
 
+        function initializeMap() {
+            if (mapInstance !== null) {
+                mapInstance.remove(); // Remove existing map if any
+            }
+            mapInstance = L.map('map').fitWorld();
+
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(mapInstance);
+
+            mapInstance.locate({setView: true, maxZoom: 16});
+
+            function onLocationFound(e) {
+                var radius = e.accuracy;
+
+                L.marker(e.latlng).addTo(mapInstance)
+                    .bindPopup("You are within " + radius + " meters from this point").openPopup();
+
+                L.circle(e.latlng, radius).addTo(mapInstance);
+            }
+
+            mapInstance.on('locationfound', onLocationFound);
+
+            function onLocationError(e) {
+                alert(e.message);
+            }
+
+            mapInstance.on('locationerror', onLocationError);
+            appLog('Leaflet map initialized.'); // Add log for map initialization
+        }
         function showScreen(screenName) {
             overviewScreen.classList.remove('active');
             navigationScreen.classList.remove('active');
 
             if (screenName === 'overview') {
                 overviewScreen.classList.add('active');
+                releaseWakeLock();
+                if (mapInstance !== null) {
+                    mapInstance.remove();
+                    mapInstance = null; // Clear the reference
+                    appLog('Leaflet map disposed.');
+                }
             } else if (screenName === 'navigation') {
                 navigationScreen.classList.add('active');
+                initializeMap();
             }
         }
 
@@ -135,6 +197,13 @@
             history.pushState({ screen: 'navigation' }, '', '#navigation');
             showScreen('navigation');
             requestWakeLock(); // Directly tied to user gesture
+        });
+
+        toggleDebugButton.addEventListener('click', () => {
+            isDebugModeActive = !isDebugModeActive;
+            localStorage.setItem('isDebugModeActive', isDebugModeActive);
+            updateDebugDisplay();
+            appLog(`Debug mode ${isDebugModeActive ? 'enabled' : 'disabled'}`);
         });
 
         window.addEventListener('popstate', (event) => {
@@ -145,13 +214,6 @@
             } else {
                 releaseWakeLock(); // Release if navigating away from navigation screen
             }
-        });
-
-        toggleDebugButton.addEventListener('click', () => {
-            isDebugModeActive = !isDebugModeActive;
-            localStorage.setItem('isDebugModeActive', isDebugModeActive);
-            updateDebugDisplay();
-            appLog(`Debug mode ${isDebugModeActive ? 'enabled' : 'disabled'}`);
         });
 
         document.addEventListener('visibilitychange', () => {
